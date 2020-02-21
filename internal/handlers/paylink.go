@@ -113,36 +113,21 @@ func (h *PayLinkRoute) getPaylink(ctx echo.Context) error {
 
 func (h *PayLinkRoute) getPaylinkUrl(ctx echo.Context) error {
 	req := &billingpb.GetPaylinkURLRequest{}
-	err := ctx.Bind(req)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, common.ErrorRequestParamsIncorrect)
-	}
 
-	authUser := common.ExtractUserContext(ctx)
-	merchantReq := &billingpb.GetMerchantByRequest{UserId: authUser.Id}
-	merchant, err := h.dispatch.Services.Billing.GetMerchantBy(ctx.Request().Context(), merchantReq)
-	if err != nil {
-		common.LogSrvCallFailedGRPC(h.L(), err, billingpb.ServiceName, "GetMerchantBy", merchantReq)
-		return echo.NewHTTPError(http.StatusInternalServerError, common.ErrorUnknown)
-	}
-	if merchant.Status != http.StatusOK {
-		return echo.NewHTTPError(int(merchant.Status), merchant.Message)
+	if err := h.dispatch.BindAndValidate(req, ctx); err != nil {
+		return err
 	}
 
 	req.Id = ctx.Param(common.RequestParameterId)
-	req.MerchantId = merchant.Item.Id
 	req.UrlMask = billingpb.PaylinkUrlDefaultMask
 
-	err = h.dispatch.Validate.Struct(req)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, common.GetValidationError(err))
-	}
-
 	res, err := h.dispatch.Services.Billing.GetPaylinkURL(ctx.Request().Context(), req)
+
 	if err != nil {
 		common.LogSrvCallFailedGRPC(h.L(), err, billingpb.ServiceName, "GetPaylinkURL", req)
 		return ctx.Render(http.StatusBadRequest, errorTemplateName, map[string]interface{}{})
 	}
+
 	if res.Status != http.StatusOK {
 		return echo.NewHTTPError(int(res.Status), res.Message)
 	}
@@ -150,6 +135,7 @@ func (h *PayLinkRoute) getPaylinkUrl(ctx echo.Context) error {
 	url := fmt.Sprintf(paylinkUrlMask, h.cfg.HttpScheme, ctx.Request().Host, res.Url)
 
 	url, err = u.NormalizeURLString(url, u.FlagsUsuallySafeGreedy|u.FlagRemoveDuplicateSlashes)
+
 	if err != nil {
 		h.L().Error("NormalizeURLString failed", logger.PairArgs("err", err.Error()))
 		return echo.NewHTTPError(http.StatusInternalServerError, common.ErrorUnknown)
